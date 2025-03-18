@@ -31,6 +31,7 @@
 
 from .sample_history import ReportHistory, ErrorHistory
 from .power_model import PowerModel
+from .static_power_model import StaticPowerModel
 
 
 class FrequencyLayer:
@@ -45,18 +46,27 @@ class FrequencyLayer:
         :param samples_window_size: Size of the samples history window used to keep samples to learn from
         :param error_window_size: Size of the error history window used to keep errors of the model
         """
-        self.model = PowerModel(frequency, min_samples)
         self.samples_history = ReportHistory(samples_window_size)
-        self.error_history = ErrorHistory(error_window_size)
+        self.model = {
+            'static': StaticPowerModel(frequency, min_samples),
+            'dynamic': PowerModel(frequency, min_samples)
+        }
+        self.error_history = {
+            'static': ErrorHistory(error_window_size),
+            'dynamic': ErrorHistory(error_window_size)
+        }
 
-    def update_power_model(self, min_intercept: float, max_intercept: float) -> None:
+    def update_power_model(self, min_intercept: float, max_intercept: float, model_label: str) -> None:
         """
         Learn a new power model using the sample's history.
         :param min_intercept: Minimum intercept value allowed for the model
         :param max_intercept: Maximum intercept value allowed for the model
+        :param model_label: Label to identify the model (static or dynamic)
         """
-        self.model.learn_power_model(self.samples_history, min_intercept, max_intercept)
-        self.error_history.clear()
+        if model_label in self.model:
+            self.model[model_label].learn_power_model(self.samples_history, min_intercept, max_intercept)
+        if model_label == 'dynamic':
+            self.error_history[model_label].clear()
 
     def store_sample_in_history(self, power_reference: float, events_value: list[float]) -> None:
         """
@@ -66,9 +76,11 @@ class FrequencyLayer:
         """
         self.samples_history.store_report(power_reference, events_value)
 
-    def store_error_in_history(self, error: float) -> None:
+    def store_error_in_history(self, error: float, model_label: str) -> None:
         """
         Append an error to the history.
         :param error: Power model error
+        :param model_label: Label to identify the model (static or dynamic)
         """
-        self.error_history.store_error(error)
+        if model_label in self.error_history:
+            self.error_history[model_label].store_error(error)
