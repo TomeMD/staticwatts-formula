@@ -47,6 +47,7 @@ class PowerModel:
         """
         Initialize a new power model.
         :param frequency: Frequency of the power model (in MHz)
+        :param min_samples: Minimum amount of samples required before trying to learn a power model
         """
         self.frequency = frequency
         self.min_samples = min_samples
