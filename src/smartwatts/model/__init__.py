@@ -32,6 +32,7 @@
 from .cpu_topology import CPUTopology
 from .sample_history import ReportHistory, ErrorHistory
 from .power_model import PowerModel
+from .static_power_model import StaticPowerModel
 from .frequency_layer import FrequencyLayer
 
 __all__ = [
@@ -39,5 +40,6 @@ __all__ = [
     'ErrorHistory',
     'FrequencyLayer',
     'PowerModel',
+    'StaticPowerModel',
     'ReportHistory'
 ]
