@@ -131,56 +131,71 @@ class HwPCReportHandler(Handler):
 
         layer = self._get_nearest_frequency_layer(pkg_frequency)
 
-        # compute Global target power report
-        try:
-            raw_global_power = layer.model.predict_power_consumption(self._extract_events_value(global_core))
-            power_reports.append(self._gen_power_report(timestamp, 'global', layer.model.hash, raw_global_power, 1.0, global_report.metadata))
-        except NotFittedError:
+        # try to get power estimations from both models
+        power_estimations = {}
+        for label in ['static', 'dynamic']:
+            try:
+                value = layer.model[label].predict_power_consumption(self._extract_events_value(global_core))
+                power_estimations[label] = {'value': value, 'error': fabs(rapl_power - value)}
+                layer.store_error_in_history(power_estimations[label]['error'], label)
+                power_estimations[label]['window_error'] = layer.error_history[label].compute_error(self.state.config.error_window_method)
+            except NotFittedError:
+                layer.update_power_model(0.0, self.state.config.cpu_topology.tdp, label)
+
+        if not power_estimations:
             layer.store_sample_in_history(rapl_power, self._extract_events_value(global_core))
-            layer.update_power_model(0.0, self.state.config.cpu_topology.tdp)
             return power_reports, formula_reports
 
-        # compute per-target power report
+        # choose the model with the lowest error during the whole error window
+        best_model = min(power_estimations, key=lambda x: power_estimations[x]["window_error"])
+        raw_global_power = power_estimations[best_model]['value']
+        # alternative: choose the model with the lowest error for this tick
+        # best_model = min(power_estimations, key=lambda x: power_estimations[x]['error'])
+
+        # append global power report with the estimation of the best model
+        power_reports.append(self._gen_power_report(timestamp, 'global', layer.model[best_model].hash, raw_global_power, 1.0, global_report.metadata))
+
+        # use the best model to compute per-target power report
         for target_name, target_report in hwpc_reports.items():
             target_core = self._gen_core_events_group(target_report)
-            raw_target_power = layer.model.predict_power_consumption(self._extract_events_value(target_core))
-            target_power, target_ratio = layer.model.cap_power_estimation(raw_target_power, raw_global_power)
-            power_reports.append(self._gen_power_report(timestamp, target_name, layer.model.hash, target_power, target_ratio, target_report.metadata))
-
-        # compute power model error from reference
-        model_error = fabs(rapl_power - raw_global_power)
+            raw_target_power = layer.model[best_model].predict_power_consumption(self._extract_events_value(target_core))
+            target_power, target_ratio = layer.model[best_model].cap_power_estimation(raw_target_power, raw_global_power)
+            power_reports.append(self._gen_power_report(timestamp, target_name, layer.model[best_model].hash, target_power, target_ratio, target_report.metadata))
 
         layer.store_sample_in_history(rapl_power, self._extract_events_value(global_core))
-        layer.store_error_in_history(model_error)
 
-        # learn new power model if error exceeds the error threshold
-        if layer.error_history.compute_error(self.state.config.error_window_method) > self.state.config.error_threshold:
-            layer.update_power_model(0.0, self.state.config.cpu_topology.tdp)
+        # always train the static power model
+        layer.model["static"].learn_from_new_event(rapl_power, self._extract_events_value(global_core))
+
+        # learn new dynamic power model if error exceeds the error threshold
+        if 'dynamic' in power_estimations and power_estimations['dynamic']['window_error'] > self.state.config.error_threshold:
+            layer.update_power_model(0.0, self.state.config.cpu_topology.tdp, 'dynamic')
 
         # store information about the power model used for this tick
-        formula_reports.append(self._gen_formula_report(timestamp, pkg_frequency, layer, model_error))
+        formula_reports.append(self._gen_formula_report(timestamp, pkg_frequency, layer, power_estimations[best_model]['error'], best_model))
         return power_reports, formula_reports
 
-    def _gen_formula_report(self, timestamp: datetime, pkg_frequency: int, layer: FrequencyLayer, error: float) -> FormulaReport:
+    def _gen_formula_report(self, timestamp: datetime, pkg_frequency: int, layer: FrequencyLayer, error: float, model_label: str) -> FormulaReport:
         """
         Generate a formula report using the given parameters.
         :param timestamp: Timestamp of the measurements
         :param pkg_frequency: Package average frequency
         :param error: Error rate of the model
+        :param model_label: Label to identify the model (static or dynamic)
         :return: Formula report filled with the given parameters
         """
         metadata = {
             'scope': self.state.config.scope.value,
             'socket': self.state.socket,
-            'layer_frequency': layer.model.frequency,
+            'layer_frequency': layer.model[model_label].frequency,
             'pkg_frequency': pkg_frequency,
             'samples': len(layer.samples_history),
-            'id': layer.model.id,
+            'id': layer.model[model_label].id,
             'error': error,
-            'intercept': layer.model.clf.intercept_,
-            'coef': str(layer.model.clf.coef_)
+            'intercept': layer.model[model_label].clf.intercept_,
+            'coef': str(layer.model[model_label].clf.coef_)
         }
-        return FormulaReport(timestamp, self.state.sensor, layer.model.hash, metadata)
+        return FormulaReport(timestamp, self.state.sensor, layer.model[model_label].hash, metadata)
 
     def _gen_power_report(self, timestamp: datetime, target: str, formula: str, power: float, ratio: float, metadata: dict[str, Any]) -> PowerReport:
         """
