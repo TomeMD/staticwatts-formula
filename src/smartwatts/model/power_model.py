@@ -110,4 +110,4 @@ class PowerModel:
             target_ratio = min(max(target_power, 0) / max(global_power, 0.00001), 1)
         target_intercept_share = target_ratio * self.clf.intercept_
 
-        return target_power + target_intercept_share, target_ratio
+        return max(target_power, 0) + target_intercept_share, target_ratio
