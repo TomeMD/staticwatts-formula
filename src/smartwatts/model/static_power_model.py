@@ -89,8 +89,11 @@ class StaticPowerModel:
         if len(samples_history) < self.min_samples:
             return
 
+        # Fit the scaler with the initial data
+        self.scaler.partial_fit(samples_history.events_values)
+
         # Scale the data, as the SGDRegressor is sensitive to the scale of the input data
-        events_values_scaled = self.scaler.fit_transform(samples_history.events_values)
+        events_values_scaled = self.scaler.transform(samples_history.events_values)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -111,6 +114,7 @@ class StaticPowerModel:
         :param events_value: Events value (Hardware Performance Counters) of the target
         """
         if self.hash != 'uninitialized':
+            self.scaler.partial_fit([events_value])
             self.clf.partial_fit(self.scaler.transform([events_value]), [power_reference])
             self.hash = sha1(dumps(self.clf)).hexdigest()
             self.cumulative_events += 1
