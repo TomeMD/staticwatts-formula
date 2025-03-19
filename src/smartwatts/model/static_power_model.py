@@ -131,13 +131,13 @@ class StaticPowerModel:
         :param raw_global_power: Global power estimation from the power model (in Watt)
         :return: Capped power estimation (in Watt) with its ratio over global power consumption
         """
-        target_power = raw_target_power - self.clf.intercept_
-        global_power = raw_global_power - self.clf.intercept_
+        target_power = raw_target_power - self.clf.intercept_[0]
+        global_power = raw_global_power - self.clf.intercept_[0]
 
         if global_power <= 0.0 or target_power <= 0.0:
             return 0.0, 0.0
 
         target_ratio = target_power / global_power
-        target_intercept_share = target_ratio * self.clf.intercept_
+        target_intercept_share = target_ratio * self.clf.intercept_[0]
 
         return target_power + target_intercept_share, target_ratio
