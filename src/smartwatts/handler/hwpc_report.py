@@ -155,11 +155,14 @@ class HwPCReportHandler(Handler):
         # append global power report with the estimation of the best model
         power_reports.append(self._gen_power_report(timestamp, 'global', layer.model[best_model].hash, raw_global_power, 1.0, global_report.metadata))
 
+        total_targets = len(hwpc_reports.keys())
+
         # use the best model to compute per-target power report
         for target_name, target_report in hwpc_reports.items():
             target_core = self._gen_core_events_group(target_report)
             raw_target_power = layer.model[best_model].predict_power_consumption(self._extract_events_value(target_core))
             target_power, target_ratio = layer.model[best_model].cap_power_estimation(raw_target_power, raw_global_power)
+            target_power, target_ratio = layer.model[best_model].cap_power_estimation(raw_target_power, raw_global_power, total_targets)
             power_reports.append(self._gen_power_report(timestamp, target_name, layer.model[best_model].hash, target_power, target_ratio, target_report.metadata))
 
         layer.store_sample_in_history(rapl_power, self._extract_events_value(global_core))

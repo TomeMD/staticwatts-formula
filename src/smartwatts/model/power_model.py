@@ -88,7 +88,7 @@ class PowerModel:
         """
         return self.clf.predict([events])[0]
 
-    def cap_power_estimation(self, raw_target_power: float, raw_global_power: float) -> (float, float):
+    def cap_power_estimation(self, raw_target_power: float, raw_global_power: float, total_targets: int) -> (float, float):
         """
         Cap target's power estimation to the global power estimation.
         :param raw_target_power: Target power estimation from the power model (in Watt)
@@ -98,10 +98,16 @@ class PowerModel:
         target_power = raw_target_power - self.clf.intercept_
         global_power = raw_global_power - self.clf.intercept_
 
-        if global_power <= 0.0 or target_power <= 0.0:
+        if raw_global_power <= 0.0 or raw_target_power <= 0.0:
             return 0.0, 0.0
 
-        target_ratio = target_power / global_power
+        # If the proportion of active power consumption of each target is not known idle is distributed
+        # equally among targets
+        if global_power <= 0.0 and target_power <= 0.0:
+            target_ratio = 1 / total_targets
+        else:
+            # If the model overestimates the power of the target ratio can be greater than 1 (while it should not)
+            target_ratio = min(max(target_power, 0) / max(global_power, 0.00001), 1)
         target_intercept_share = target_ratio * self.clf.intercept_
 
         return target_power + target_intercept_share, target_ratio
