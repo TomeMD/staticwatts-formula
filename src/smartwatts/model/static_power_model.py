@@ -30,6 +30,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import warnings
+import numpy as np
 from hashlib import sha1
 from pickle import dumps
 
@@ -44,8 +45,7 @@ class StaticPowerModel:
     This Power model compute the power estimations based on all the historical data since the beginning of the execution.
     """
 
-    @staticmethod
-    def __get_sgd_regressor() -> SGDRegressor:
+    def __get_sgd_regressor(self) -> SGDRegressor:
         """
         Helper function to create a SGDRegressor object with the default parameters.
         """
@@ -55,17 +55,18 @@ class StaticPowerModel:
             alpha=0.0001,
             penalty='elasticnet',
             max_iter=10000,
-            fit_intercept=True,
+            fit_intercept=(self.idle_consumption == 0.0),
             random_state=42
         )
 
-    def __init__(self, frequency: int, min_samples: int):
+    def __init__(self, frequency: int, idle_consumption: float, min_samples: int):
         """
         Initialize a new power model.
         :param frequency: Frequency of the power model (in MHz)
         :param min_samples: Minimum amount of samples required before trying to learn a power model
         """
         self.frequency = frequency
+        self.idle_consumption = idle_consumption
         self.min_samples = min_samples
         self.scaler = StandardScaler()
         self.clf = self.__get_sgd_regressor()
@@ -97,7 +98,7 @@ class StaticPowerModel:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            self.clf.fit(events_values_scaled, samples_history.power_values)
+            self.clf.fit(events_values_scaled, np.maximum(np.array(samples_history.power_values) - self.idle_consumption, 0.0))
 
         # Discard the new model when the intercept is not in specified range
         if not min_intercept <= self.clf.intercept_ < max_intercept:
@@ -115,7 +116,7 @@ class StaticPowerModel:
         """
         if self.hash != 'uninitialized':
             self.scaler.partial_fit([events_value])
-            self.clf.partial_fit(self.scaler.transform([events_value]), [power_reference])
+            self.clf.partial_fit(self.scaler.transform([events_value]), [max(power_reference - self.idle_consumption, 0.0)])
             self.hash = sha1(dumps(self.clf)).hexdigest()
             self.cumulative_events += 1
 
@@ -128,7 +129,8 @@ class StaticPowerModel:
         """
         return self.clf.predict(self.scaler.transform([events]))[0]
 
-    def cap_power_estimation(self, raw_target_power: float, raw_global_power: float, total_targets: int) -> (float, float):
+
+    def cap_power_estimation(self, raw_target_power: float, raw_global_power: float) -> (float, float):
         """
         Cap target's power estimation to the global power estimation.
         :param raw_target_power: Target power estimation from the power model (in Watt)
@@ -138,16 +140,12 @@ class StaticPowerModel:
         target_power = raw_target_power - self.clf.intercept_[0]
         global_power = raw_global_power - self.clf.intercept_[0]
 
-        if raw_global_power <= 0.0 or raw_target_power <= 0.0:
+        if global_power <= 0.0 or target_power <= 0.0:
             return 0.0, 0.0
 
-        # If the proportion of active power consumption of each target is not known idle is distributed
-        # equally among targets
-        if global_power <= 0.0 and target_power <= 0.0:
-            target_ratio = 1 / total_targets
-        else:
-            # If the model overestimates the power of the target ratio can be greater than 1 (while it should not)
-            target_ratio = min(max(target_power, 0) / max(global_power, 0.00001), 1)
+        target_ratio = target_power / global_power
         target_intercept_share = target_ratio * self.clf.intercept_[0]
 
-        return max(target_power, 0) + target_intercept_share, target_ratio
+        return target_power + target_intercept_share, target_ratio
+
+        return target_power + target_intercept_share, target_ratio

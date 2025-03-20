@@ -30,6 +30,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import warnings
+import numpy as np
 from hashlib import sha1
 from pickle import dumps
 
@@ -43,13 +44,14 @@ class PowerModel:
     This Power model compute the power estimations and handle the learning of a new model when needed.
     """
 
-    def __init__(self, frequency: int, min_samples: int):
+    def __init__(self, frequency: int, idle_consumption: float, min_samples: int):
         """
         Initialize a new power model.
         :param frequency: Frequency of the power model (in MHz)
         :param min_samples: Minimum amount of samples required before trying to learn a power model
         """
         self.frequency = frequency
+        self.idle_consumption = idle_consumption
         self.min_samples = min_samples
         self.clf = ElasticNet()
         self.hash = 'uninitialized'
@@ -65,11 +67,11 @@ class PowerModel:
         if len(samples_history) < self.min_samples:
             return
 
-        fit_intercept = len(samples_history) == samples_history.max_length
+        fit_intercept = self.idle_consumption == 0.0
         model = ElasticNet(fit_intercept=fit_intercept, positive=True)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            model.fit(samples_history.events_values, samples_history.power_values)
+            model.fit(samples_history.events_values, np.maximum(np.array(samples_history.power_values) - self.idle_consumption, 0.0))
 
         # Discard the new model when the intercept is not in specified range
         if not min_intercept <= model.intercept_ < max_intercept:
@@ -88,7 +90,7 @@ class PowerModel:
         """
         return self.clf.predict([events])[0]
 
-    def cap_power_estimation(self, raw_target_power: float, raw_global_power: float, total_targets: int) -> (float, float):
+    def cap_power_estimation(self, raw_target_power: float, raw_global_power: float) -> (float, float):
         """
         Cap target's power estimation to the global power estimation.
         :param raw_target_power: Target power estimation from the power model (in Watt)
@@ -98,16 +100,11 @@ class PowerModel:
         target_power = raw_target_power - self.clf.intercept_
         global_power = raw_global_power - self.clf.intercept_
 
-        if raw_global_power <= 0.0 or raw_target_power <= 0.0:
+        if global_power <= 0.0 or target_power <= 0.0:
             return 0.0, 0.0
 
-        # If the proportion of active power consumption of each target is not known idle is distributed
-        # equally among targets
-        if global_power <= 0.0 and target_power <= 0.0:
-            target_ratio = 1 / total_targets
-        else:
-            # If the model overestimates the power of the target ratio can be greater than 1 (while it should not)
-            target_ratio = min(max(target_power, 0) / max(global_power, 0.00001), 1)
+        target_ratio = target_power / global_power
         target_intercept_share = target_ratio * self.clf.intercept_
 
-        return max(target_power, 0) + target_intercept_share, target_ratio
+        return target_power + target_intercept_share, target_ratio
+

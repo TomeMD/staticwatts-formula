@@ -58,7 +58,7 @@ class HwPCReportHandler(Handler):
         :return: Initialized Ordered dict containing a power model for each frequency layer
         """
         return OrderedDict(
-            (freq, FrequencyLayer(freq, self.state.config.min_samples_required, self.state.config.history_window_size, self.state.config.error_window_size))
+            (freq, FrequencyLayer(freq, self.state.config.cpu_topology.idle_consumption[int(self.state.socket)], self.state.config.min_samples_required, self.state.config.history_window_size, self.state.config.error_window_size))
             for freq in self.state.config.cpu_topology.get_supported_frequencies()
         )
 
@@ -123,6 +123,12 @@ class HwPCReportHandler(Handler):
         rapl_power = rapl[self.state.config.rapl_event]
         power_reports.append(self._gen_power_report(timestamp, 'rapl', self.state.config.rapl_event, rapl_power, 1.0, global_report.metadata))
 
+        idle_consumption = self.state.config.cpu_topology.idle_consumption[int(self.state.socket)]
+        # TODO: Take into account multi-node scenarios where each node has a different CPU
+        # Useless data as it never changes (just for testing)
+        power_reports.append(self._gen_power_report(timestamp, f'{self.state.sensor}-idle-consumption', "PREVIOUSLY-MEASURED",
+                             idle_consumption, 1.0, global_report.metadata))
+
         try:
             pkg_frequency = self._compute_avg_pkg_frequency(avg_msr)
         except ZeroDivisionError:
@@ -136,7 +142,7 @@ class HwPCReportHandler(Handler):
         for label in ['static', 'dynamic']:
             try:
                 value = layer.model[label].predict_power_consumption(self._extract_events_value(global_core))
-                power_estimations[label] = {'value': value, 'error': fabs(rapl_power - value)}
+                power_estimations[label] = {'value': value, 'error': fabs(max(rapl_power - idle_consumption, 0.0) - value)}
                 layer.store_error_in_history(power_estimations[label]['error'], label)
                 power_estimations[label]['window_error'] = layer.error_history[label].compute_error(self.state.config.error_window_method)
             except NotFittedError:
@@ -147,22 +153,19 @@ class HwPCReportHandler(Handler):
             return power_reports, formula_reports
 
         # choose the model with the lowest error during the whole error window
-        best_model = min(power_estimations, key=lambda x: power_estimations[x]["window_error"])
+        error_criterion = "window_error" # alternative: "error" (lowest error for this tick)
+        best_model = min(power_estimations, key=lambda x: power_estimations[x][error_criterion])
         raw_global_power = power_estimations[best_model]['value']
-        # alternative: choose the model with the lowest error for this tick
-        # best_model = min(power_estimations, key=lambda x: power_estimations[x]['error'])
 
         # append global power report with the estimation of the best model
         power_reports.append(self._gen_power_report(timestamp, 'global', layer.model[best_model].hash, raw_global_power, 1.0, global_report.metadata))
-
-        total_targets = len(hwpc_reports.keys())
 
         # use the best model to compute per-target power report
         for target_name, target_report in hwpc_reports.items():
             target_core = self._gen_core_events_group(target_report)
             raw_target_power = layer.model[best_model].predict_power_consumption(self._extract_events_value(target_core))
-            target_power, target_ratio = layer.model[best_model].cap_power_estimation(raw_target_power, raw_global_power, total_targets)
-            logging.debug('TARGET %s\tMODEL %s\tINTERCEPT %.2f\tRAPL %.2f\tGLOBAL %.2f\tWINDOW_ERROR %.2f\tRAW VALUE %.2f\tFINAL VALUE %.2f',
+            target_power, target_ratio = layer.model[best_model].cap_power_estimation(raw_target_power, raw_global_power)
+            logging.debug('[%s]\tMODEL %s\tINTERCEPT %.2f\tRAPL %.2f\tGLOBAL %.2f\tWINDOW_ERROR %.2f\tRAW VALUE %.2f\tFINAL VALUE %.2f',
                           target_name,
                           best_model,
                           layer.model[best_model].clf.intercept_ if best_model == "dynamic" else layer.model[best_model].clf.intercept_[0],
@@ -285,3 +288,4 @@ class HwPCReportHandler(Handler):
         :return: List containing the events value sorted by event name
         """
         return [value for _, value in sorted(events.items())]
+

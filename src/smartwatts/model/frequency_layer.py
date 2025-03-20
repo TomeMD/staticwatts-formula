@@ -39,7 +39,7 @@ class FrequencyLayer:
     Frequency layer of the CPU.
     """
 
-    def __init__(self, frequency: int, min_samples: int, samples_window_size: int, error_window_size: int) -> None:
+    def __init__(self, frequency: int, idle_consumption: float, min_samples: int, samples_window_size: int, error_window_size: int) -> None:
         """
         Initialize a new frequency layer.
         :param min_samples: Minimum amount of samples required before trying to learn a power model
@@ -48,8 +48,8 @@ class FrequencyLayer:
         """
         self.samples_history = ReportHistory(samples_window_size)
         self.model = {
-            'static': StaticPowerModel(frequency, min_samples),
-            'dynamic': PowerModel(frequency, min_samples)
+            'static': StaticPowerModel(frequency, idle_consumption, min_samples),
+            'dynamic': PowerModel(frequency, idle_consumption, min_samples)
         }
         self.error_history = {
             'static': ErrorHistory(error_window_size),
