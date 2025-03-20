@@ -69,6 +69,7 @@ def generate_smartwatts_parser() -> CommonCLIParsingManager:
 
     # CPU topology information
     pm.add_argument('cpu-tdp', help_text='CPU TDP (in Watt)', argument_type=int, default_value=400)
+    pm.add_argument('cpu-idle-consumption', help_text='CPU idle consumption (in Watt) for each socket', argument_type=str, default_value="0,0,0,0")
     pm.add_argument('cpu-base-clock', help_text='CPU base clock (in MHz)', argument_type=int, default_value=100)
     pm.add_argument('cpu-base-freq', help_text='CPU base frequency (in MHz)', argument_type=int, default_value=2100)
 
@@ -147,7 +148,7 @@ def run_smartwatts(config) -> None:
     route_table = RouteTable()
     route_table.add_dispatch_rule(HWPCReport, HWPCDispatchRule(HWPCDepthLevel.SOCKET, primary=True))
 
-    cpu_topology = CPUTopology(config['cpu-tdp'], config['cpu-base-clock'], 1, int(config['cpu-base-freq'] / config['cpu-base-clock']), 100)
+    cpu_topology = CPUTopology(config['cpu-tdp'], config['cpu-idle-consumption'], config['cpu-base-clock'], 1, int(config['cpu-base-freq'] / config['cpu-base-clock']), 100)
 
     report_filter = Filter()
     pullers = PullerGenerator(report_filter).generate(config)
