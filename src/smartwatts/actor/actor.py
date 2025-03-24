@@ -57,10 +57,9 @@ class SmartWattsFormulaState(FormulaState):
         FormulaState.__init__(self, actor, pushers, metadata)
         self.config = config
 
-        m = re.search(r'^\(\'(.*)\', \'(.*)\', \'(.*)\'\)$', actor.name)
+        m = re.search(r'^\(\'(.*)\', \'(.*)\'\)$', actor.name)
         self.dispatcher = m.group(1)
         self.sensor = m.group(2)
-        self.socket = m.group(3)
 
 
 class SmartWattsFormulaActor(FormulaActor):

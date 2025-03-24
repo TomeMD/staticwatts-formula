@@ -146,7 +146,7 @@ def run_smartwatts(config) -> None:
     logging.info('SmartWatts version %s based on PowerAPI version %s', version('smartwatts'), version('powerapi'))
 
     route_table = RouteTable()
-    route_table.add_dispatch_rule(HWPCReport, HWPCDispatchRule(HWPCDepthLevel.SOCKET, primary=True))
+    route_table.add_dispatch_rule(HWPCReport, HWPCDispatchRule(HWPCDepthLevel.ROOT, primary=True))
 
     cpu_topology = CPUTopology(config['cpu-tdp'], config['cpu-idle-consumption'], config['cpu-base-clock'], 1, int(config['cpu-base-freq'] / config['cpu-base-clock']), 100)
 
