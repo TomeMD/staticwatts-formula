@@ -165,6 +165,8 @@ class HwPCReportHandler(Handler):
             target_core = self._gen_core_events_group(target_report)
             raw_target_power = layer.model[best_model].predict_power_consumption(self._extract_events_value(target_core))
             target_power, target_ratio = layer.model[best_model].cap_power_estimation(raw_target_power, raw_global_power)
+            # The prediction is capped taking into account current tick error
+            target_power = target_power * (max(rapl_power - idle_consumption, 0.0) / max(raw_global_power, 0.0000001))
             logging.debug('[%s]\tMODEL %s\tINTERCEPT %.2f\tRAPL %.2f\tIDLE %.2f\tGLOBAL %.2f\tWINDOW_ERROR %.2f\tRAW VALUE %.2f\tFINAL VALUE %.2f',
                           target_name,
                           best_model,
