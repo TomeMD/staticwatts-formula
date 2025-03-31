@@ -51,6 +51,7 @@ class HwPCReportHandler(Handler):
         Handler.__init__(self, state)
         self.layers = self._generate_frequency_layers()
         self.ticks: OrderedDict[datetime.datetime, dict[str, HWPCReport]] = OrderedDict()
+        self.hostname = self.state.sensor[7:]
 
     def _generate_frequency_layers(self) -> OrderedDict[int, FrequencyLayer]:
         """
@@ -121,12 +122,12 @@ class HwPCReportHandler(Handler):
         avg_msr = self._gen_msr_events_group(global_report)
         global_core = self._gen_agg_core_report_from_running_targets(hwpc_reports)
         rapl_power = rapl[self.state.config.rapl_event]
-        power_reports.append(self._gen_power_report(timestamp, 'rapl', self.state.config.rapl_event, rapl_power, 1.0, global_report.metadata))
+        power_reports.append(self._gen_power_report(timestamp, f'{self.hostname}-rapl', self.state.config.rapl_event, rapl_power, 1.0, global_report.metadata))
 
         idle_consumption = self.state.config.cpu_topology.idle_consumption[0]
         # TODO: Take into account multi-node scenarios where each node has a different CPU
         # Useless data as it never changes (just for testing)
-        power_reports.append(self._gen_power_report(timestamp, f'{self.state.sensor}-idle-consumption', "PREVIOUSLY-MEASURED",
+        power_reports.append(self._gen_power_report(timestamp, f'{self.hostname}-idle', "PREVIOUSLY-MEASURED",
                              idle_consumption, 1.0, global_report.metadata))
 
         try:
